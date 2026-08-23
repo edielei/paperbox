@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2a9cff"/>
+      <stop offset="1" stop-color="#0062d4"/>
+    </linearGradient>
+  </defs>
+  <!-- 背景圆角方形 -->
+  <rect width="64" height="64" rx="14" fill="url(#bg)"/>
+  <!-- 盒子（半透明白色，纸张后面） -->
+  <path d="M11 41 L32 54 L53 41 L53 47 L32 60 L11 47 Z" fill="rgba(255,255,255,0.22)"/>
+  <path d="M11 41 L32 54 L53 41 L53 47 L32 60 L11 47 Z" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="1"/>
+  <!-- 纸张主体 -->
+  <rect x="21" y="11" width="22" height="33" rx="2.5" fill="#ffffff"/>
+  <!-- 纸张折角 -->
+  <path d="M36 11 L43 18 L43 11 Z" fill="#d0d0d0"/>
+  <path d="M36 11 L43 18 L36 18 Z" fill="#eaeaea"/>
+  <!-- 纸上文字线条 -->
+  <rect x="26" y="21" width="12" height="2.2" rx="1.1" fill="#007aff"/>
+  <rect x="26" y="26.5" width="12" height="2" rx="1" fill="#c0c0c0"/>
+  <rect x="26" y="31.5" width="8" height="2" rx="1" fill="#c0c0c0"/>
+</svg>

@@ -1,6 +1,4 @@
 <?php
-// config.php — 全局配置与公共函数
-
 session_start();
 date_default_timezone_set('Asia/Shanghai');
 
@@ -10,7 +8,6 @@ define('UPLOAD_URL', 'uploads/');
 define('MAX_IMAGE_SIZE', 20 * 1024 * 1024);
 define('ALLOWED_IMAGE_EXT', ['jpg', 'jpeg', 'png', 'gif', 'webp']);
 
-// 初始化数据库
 try {
     $pdo = new PDO('sqlite:' . DB_FILE);
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
@@ -35,7 +32,6 @@ try {
     $pdo->exec("CREATE INDEX IF NOT EXISTS idx_category ON documents(category)");
     $pdo->exec("CREATE INDEX IF NOT EXISTS idx_updated_at ON documents(updated_at DESC)");
 
-    // 多图表
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS document_images (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -46,24 +42,6 @@ try {
         )
     ");
     $pdo->exec("CREATE INDEX IF NOT EXISTS idx_doc_images ON document_images(document_id, sort_order)");
-
-    // 旧数据迁移：把 documents.image_path 迁移到 document_images
-    $cols = $pdo->query("PRAGMA table_info(documents)")->fetchAll();
-    $hasOldField = false;
-    foreach ($cols as $col) {
-        if ($col['name'] === 'image_path') { $hasOldField = true; break; }
-    }
-    if ($hasOldField) {
-        $oldDocs = $pdo->query("SELECT id, image_path FROM documents WHERE image_path IS NOT NULL AND image_path != ''")->fetchAll();
-        foreach ($oldDocs as $od) {
-            $cnt = $pdo->prepare("SELECT COUNT(*) FROM document_images WHERE document_id = ?");
-            $cnt->execute([$od['id']]);
-            if ($cnt->fetchColumn() == 0) {
-                $pdo->prepare("INSERT INTO document_images (document_id, image_path, sort_order) VALUES (?, ?, 0)")
-                    ->execute([$od['id'], $od['image_path']]);
-            }
-        }
-    }
 } catch (PDOException $e) {
     http_response_code(500);
     die('数据库连接失败，请检查 paper.db 文件权限。');
@@ -71,12 +49,9 @@ try {
 
 require __DIR__ . '/markdown.php';
 
-// ---------- 辅助函数 ----------
-
 function e($str) {
     $str = (string)($str ?? '');
     if ($str === '') return '';
-    // 仅在不是有效 UTF-8 时才尝试转换，避免对正常数据误判
     if (function_exists('mb_check_encoding') && !mb_check_encoding($str, 'UTF-8')) {
         if (function_exists('mb_convert_encoding')) {
             $str = mb_convert_encoding($str, 'UTF-8', 'UTF-8,GBK,GB2312,BIG5,ASCII');
@@ -101,7 +76,7 @@ function not_found($msg = '文档不存在') {
     echo '<meta name="viewport" content="width=device-width,initial-scale=1">';
     echo '<title>未找到</title><link rel="icon" href="favicon.ico" type="image/x-icon"><link rel="icon" href="favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="css/style.css"></head><body>';
     echo '<div class="container"><div class="empty">';
-    echo '<div class="empty-icon">🔍</div><p>' . e($msg) . '</p>';
+    echo '<div class="empty-icon" style="font-size:3rem;">404</div><p>' . e($msg) . '</p>';
     echo '<a href="index.php" class="btn" style="margin-top:15px;">返回列表</a>';
     echo '</div></div></body></html>';
     exit;
@@ -127,8 +102,6 @@ function get_all_tags() {
     return array_keys($all);
 }
 
-// ---------- CSRF ----------
-
 function csrf_token() {
     if (empty($_SESSION['csrf_token'])) {
         $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
@@ -148,8 +121,6 @@ function verify_csrf() {
     }
 }
 
-// ---------- 图片上传 ----------
-
 function upload_image($file) {
     if (empty($file['tmp_name']) || $file['error'] !== UPLOAD_ERR_OK) {
         return ['path' => '', 'error' => ''];
@@ -164,8 +135,7 @@ function upload_image($file) {
     $finfo = finfo_open(FILEINFO_MIME_TYPE);
     $mime = finfo_file($finfo, $file['tmp_name']);
     finfo_close($finfo);
-    $allowed_mime = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-    if (!in_array($mime, $allowed_mime, true)) {
+    if (!in_array($mime, ['image/jpeg', 'image/png', 'image/gif', 'image/webp'], true)) {
         return ['path' => '', 'error' => '文件不是有效的图片'];
     }
     $newName = date('Ymd_His') . '_' . uniqid() . '.' . $ext;
@@ -181,31 +151,6 @@ function delete_image_file($imagePath) {
     }
 }
 
-// 处理多图上传，返回 [路径数组, 错误信息]
-function upload_multiple_images($files) {
-    $paths = [];
-    if (empty($files['tmp_name']) || !is_array($files['tmp_name'])) {
-        return [$paths, ''];
-    }
-    $count = count($files['name']);
-    for ($i = 0; $i < $count; $i++) {
-        if ($files['error'][$i] !== UPLOAD_ERR_OK) continue;
-        $file = [
-            'name' => $files['name'][$i],
-            'type' => $files['type'][$i],
-            'tmp_name' => $files['tmp_name'][$i],
-            'error' => $files['error'][$i],
-            'size' => $files['size'][$i],
-        ];
-        $result = upload_image($file);
-        if ($result['error']) return [[], $result['error']];
-        if ($result['path']) $paths[] = $result['path'];
-    }
-    return [$paths, ''];
-}
-
-// ---------- 文档图片管理 ----------
-
 function get_document_images($doc_id) {
     global $pdo;
     $stmt = $pdo->prepare("SELECT image_path FROM document_images WHERE document_id = ? ORDER BY sort_order ASC, id ASC");
@@ -213,12 +158,6 @@ function get_document_images($doc_id) {
     return $stmt->fetchAll(PDO::FETCH_COLUMN);
 }
 
-function get_first_image($doc_id) {
-    $images = get_document_images($doc_id);
-    return $images[0] ?? '';
-}
-
-// 批量获取多个文档的首张图，返回 [doc_id => image_path]
 function get_first_images_batch($docIds) {
     global $pdo;
     if (empty($docIds)) return [];
@@ -252,8 +191,6 @@ function delete_document_images_files($doc_id) {
     }
 }
 
-// ---------- 列表摘要 ----------
-
 function plain_summary($text, $len = 100) {
     $text = $text ?? '';
     $text = preg_replace('/```[\s\S]*?```/', '', $text);
@@ -268,7 +205,6 @@ function plain_summary($text, $len = 100) {
     return mb_substr($text, 0, $len);
 }
 
-// 搜索关键词高亮（在已转义的文本上使用）
 function highlight($text, $keyword) {
     if ($text === '') return $text;
     $keywords = is_array($keyword) ? $keyword : [$keyword];

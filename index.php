@@ -7,9 +7,7 @@ $search = $_GET['q'] ?? '';
 $category = $_GET['category'] ?? '';
 $perPage = 20;
 $page = max(1, intval($_GET['page'] ?? 1));
-$offset = ($page - 1) * $perPage;
 
-// 解析选中的标签（支持 tags=医疗,合同 或旧版 tag=医疗）
 $selectedTags = [];
 if (isset($_GET['tags']) && $_GET['tags'] !== '') {
     $selectedTags = array_filter(array_map('trim', preg_split('/[,，]/u', $_GET['tags'])));
@@ -35,7 +33,6 @@ if (!empty($selectedTags)) {
 
 $whereSql = $where ? " WHERE " . implode(" AND ", $where) : "";
 
-// 查总数
 $countStmt = $pdo->prepare("SELECT COUNT(*) FROM documents" . $whereSql);
 $countStmt->execute($params);
 $total = $countStmt->fetchColumn();
@@ -43,13 +40,11 @@ $totalPages = max(1, ceil($total / $perPage));
 $page = min($page, $totalPages);
 $offset = ($page - 1) * $perPage;
 
-// 查当前页
 $sql = "SELECT * FROM documents" . $whereSql . " ORDER BY updated_at DESC LIMIT $perPage OFFSET $offset";
 $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
 $docs = $stmt->fetchAll();
 
-// 批量取当前页所有文档的首张图（消灭 N+1）
 $docIds = array_column($docs, 'id');
 $firstImages = get_first_images_batch($docIds);
 
@@ -57,13 +52,11 @@ $cats = get_categories();
 $allTags = get_all_tags();
 $hasFilter = ($search !== '' || $category !== '' || !empty($selectedTags));
 
-// 生成分页链接（保留所有筛选参数）
 function page_url($p) {
     $q = $_GET;
     $q['page'] = $p;
     return '?' . http_build_query($q);
 }
-// 切换标签选中状态（多选）
 function tag_toggle_url($t) {
     $q = $_GET;
     $current = [];
@@ -88,13 +81,11 @@ function tag_toggle_url($t) {
     }
     return $q ? '?' . http_build_query($q) : 'index.php';
 }
-// 清除所有标签筛选
 function clear_all_tags_url() {
     $q = $_GET;
     unset($q['tag'], $q['tags'], $q['page']);
     return $q ? '?' . http_build_query($q) : 'index.php';
 }
-// 仅清除搜索关键词（保留分类和标签）
 function clear_search_url() {
     $q = $_GET;
     unset($q['q'], $q['page']);
@@ -115,7 +106,7 @@ function clear_search_url() {
 <div class="container">
     <div class="header home-header">
         <h1><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2a80eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;margin-right:6px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>纸质文档管理</h1>
-        <a href="add.php" class="btn">
+        <a href="add.php<?= $category ? '?category=' . urlencode($category) : '' ?>" class="btn">
             <svg class="btn-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
             添加
         </a>
@@ -175,7 +166,7 @@ function clear_search_url() {
 
     <?php if (empty($docs)): ?>
     <div class="empty">
-        <div class="empty-icon"><?= $hasFilter ? '🔍' : '📂' ?></div>
+        <div class="empty-icon"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#ccc" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg></div>
         <?php if ($hasFilter): ?>
         <p>没有找到相关文档，换个关键词试试吧</p>
         <a href="index.php" class="btn btn-secondary btn-small" style="margin-top:15px;">清除搜索</a>
@@ -191,7 +182,7 @@ function clear_search_url() {
         <?php if ($firstImg): ?>
         <a href="view.php?id=<?= (int)$doc['id'] ?>" class="card-img-link"><img src="<?= e(UPLOAD_URL . $firstImg) ?>" class="card-img" alt="" loading="lazy"></a>
         <?php else: ?>
-        <a href="view.php?id=<?= (int)$doc['id'] ?>" class="card-img-link"><div class="card-img" style="display:flex;align-items:center;justify-content:center;color:#999;font-size:2rem;">📄</div></a>
+        <a href="view.php?id=<?= (int)$doc['id'] ?>" class="card-img-link"><div class="card-img card-img-placeholder"><svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#ccc" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg></div></a>
         <?php endif; ?>
         <div class="card-body">
             <div class="card-title"><a href="view.php?id=<?= (int)$doc['id'] ?>" class="card-title-link"><?= highlight(e($doc['title']), $search) ?></a></div>

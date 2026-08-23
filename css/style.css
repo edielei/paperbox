@@ -252,6 +252,11 @@ body {
     flex-shrink: 0;
     background: #eee;
 }
+.card-img-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
 .card-img-link {
     display: block;
     flex-shrink: 0;
@@ -703,6 +708,31 @@ mark.hl {
     color: #888;
     margin-top: 5px;
 }
+.cat-suggest {
+    font-size: 0.8rem;
+    color: #2a80eb;
+    margin-top: 5px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.cat-suggest-text {
+    font-weight: 600;
+}
+.cat-suggest-btn {
+    border: 1px solid #2a80eb;
+    background: #fff;
+    color: #2a80eb;
+    cursor: pointer;
+    padding: 1px 8px;
+    border-radius: 3px;
+    font-size: 0.75rem;
+    transition: all 0.15s;
+}
+.cat-suggest-btn:hover {
+    background: #2a80eb;
+    color: #fff;
+}
 .actions {
     display: flex;
     gap: 10px;
@@ -1019,6 +1049,7 @@ mark.hl {
     font-size: 0.85rem;
     color: #888;
     margin-top: 5px;
+    display: none;
 }
 .md-hint code {
     background: #f0f0f5;
@@ -1223,6 +1254,93 @@ mark.hl {
 }
 .editor-textarea:focus {
     border-color: #2a80eb;
+}
+/* ---------- Markdown 工具栏 ---------- */
+.md-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 2px;
+    padding: 6px 8px;
+    background: #f5f6f8;
+    border-bottom: 1px solid #d0d0d5;
+}
+.md-tool-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 28px;
+    height: 26px;
+    padding: 0 6px;
+    border: none;
+    background: transparent;
+    color: #4c5161;
+    font-size: 13px;
+    line-height: 1;
+    border-radius: 3px;
+    cursor: pointer;
+    font-family: system-ui;
+    transition: background 0.15s, color 0.15s;
+    -webkit-appearance: none;
+    appearance: none;
+}
+.md-tool-btn:hover {
+    background: #e8f0ff;
+    color: #2a80eb;
+}
+.md-tool-btn:active {
+    background: #d4e5ff;
+}
+.md-tool-sep {
+    display: inline-block;
+    width: 1px;
+    height: 16px;
+    background: #d0d0d5;
+    margin: 0 4px;
+    flex-shrink: 0;
+}
+/* 标题下拉菜单 */
+.md-tool-dropdown {
+    position: relative;
+    display: inline-flex;
+}
+.md-tool-menu {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    background: #fff;
+    border: 1px solid #d0d0d5;
+    border-radius: 4px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+    z-index: 100;
+    min-width: 88px;
+    padding: 4px 0;
+    margin-top: 2px;
+}
+.md-tool-dropdown.open .md-tool-menu {
+    display: block;
+}
+.md-tool-menu button {
+    display: block;
+    width: 100%;
+    padding: 7px 14px;
+    border: none;
+    background: transparent;
+    text-align: left;
+    font-size: 13px;
+    color: #4c5161;
+    cursor: pointer;
+    font-family: system-ui;
+    white-space: nowrap;
+}
+.md-tool-menu button:hover {
+    background: #e8f0ff;
+    color: #2a80eb;
+}
+@media (max-width: 480px) {
+    .md-toolbar { display: none; }
+    .md-hint { display: block; }
 }
 .preview-pane {
     overflow-y: auto;

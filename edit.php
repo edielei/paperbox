@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 require 'config.php';
 $id = intval($_GET['id'] ?? 0);
 
@@ -103,6 +103,36 @@ $existingJson = array_map(function($p) {
             <div class="editor-tabs">
                 <button type="button" class="tab-btn active" id="btnEdit">编辑</button>
                 <button type="button" class="tab-btn" id="btnPreview">预览</button>
+            </div>
+            <div class="md-toolbar" id="mdToolbar">
+                <button type="button" class="md-tool-btn" data-action="bold" title="粗体"><b>B</b></button>
+                <button type="button" class="md-tool-btn" data-action="italic" title="斜体"><i>I</i></button>
+                <button type="button" class="md-tool-btn" data-action="underline" title="下划线"><u>U</u></button>
+                <button type="button" class="md-tool-btn" data-action="highlight" title="高亮"><span style="background:#fff3a0;padding:0 3px;">H</span></button>
+                <span class="md-tool-sep"></span>
+                <div class="md-tool-dropdown">
+                    <button type="button" class="md-tool-btn" data-action="heading" title="标题">H ▾</button>
+                    <div class="md-tool-menu">
+                        <button type="button" data-heading="1">标题 1</button>
+                        <button type="button" data-heading="2">标题 2</button>
+                        <button type="button" data-heading="3">标题 3</button>
+                    </div>
+                </div>
+                <button type="button" class="md-tool-btn" data-action="quote" title="引用">&ldquo;</button>
+                <button type="button" class="md-tool-btn" data-action="code" title="行内代码">&lt;/&gt;</button>
+                <button type="button" class="md-tool-btn" data-action="codeblock" title="代码块">{ }</button>
+                <span class="md-tool-sep"></span>
+                <button type="button" class="md-tool-btn" data-action="ul" title="无序列表">• 列表</button>
+                <button type="button" class="md-tool-btn" data-action="ol" title="有序列表">1. 列表</button>
+                <button type="button" class="md-tool-btn" data-action="table" title="表格">表格</button>
+                <button type="button" class="md-tool-btn" data-action="link" title="链接">链接</button>
+                <button type="button" class="md-tool-btn" data-action="image" title="图片">图片</button>
+                <span class="md-tool-sep"></span>
+                <button type="button" class="md-tool-btn" data-action="sup" title="上标">x²</button>
+                <button type="button" class="md-tool-btn" data-action="sub" title="下标">x₂</button>
+                <button type="button" class="md-tool-btn" data-action="hr" title="分割线">—</button>
+                <span class="md-tool-sep"></span>
+                <button type="button" class="md-tool-btn" title="Markdown 语法帮助" onclick="window.open('markdown-help.php','_blank')">?</button>
             </div>
             <textarea name="content" id="contentInput" class="editor-textarea"><?= e($doc['content']) ?></textarea>
             <div class="preview-pane" id="previewPane" style="display:none;"></div>

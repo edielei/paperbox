@@ -106,5 +106,8 @@ $examples = [
     <?php endforeach; ?>
 
 </div>
+<footer class="site-footer">
+    <p>PaperBox 纸质文档管理系统 &copy; <?php echo date('Y'); ?></p>
+</footer>
 </body>
 </html>

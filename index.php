@@ -1,12 +1,17 @@
 <?php
 require 'config.php';
 
-$where = [];
+$where = ['deleted_at IS NULL'];
 $params = [];
 $search = $_GET['q'] ?? '';
 $category = $_GET['category'] ?? '';
 $perPage = 20;
 $page = max(1, intval($_GET['page'] ?? 1));
+$sort = $_GET['sort'] ?? 'created_at';
+if (!in_array($sort, ['created_at', 'updated_at'])) $sort = 'created_at';
+$order = $_GET['order'] ?? 'desc';
+if (!in_array($order, ['asc', 'desc'])) $order = 'desc';
+$orderSql = strtoupper($order);
 
 $selectedTags = [];
 if (isset($_GET['tags']) && $_GET['tags'] !== '') {
@@ -15,6 +20,7 @@ if (isset($_GET['tags']) && $_GET['tags'] !== '') {
     $selectedTags = [trim($_GET['tag'])];
 }
 $selectedTags = array_unique($selectedTags);
+$expireDays = (int)get_setting('expire_days', 30);
 
 if ($search !== '') {
     $where[] = "(title LIKE :q OR content LIKE :q)";
@@ -25,10 +31,12 @@ if ($category !== '') {
     $params[':cat'] = $category;
 }
 if (!empty($selectedTags)) {
+    $tagConds = [];
     foreach ($selectedTags as $i => $t) {
-        $where[] = "tags LIKE :tag_$i";
+        $tagConds[] = "tags LIKE :tag_$i";
         $params[":tag_$i"] = '%' . $t . '%';
     }
+    $where[] = '(' . implode(' OR ', $tagConds) . ')';
 }
 
 $whereSql = $where ? " WHERE " . implode(" AND ", $where) : "";
@@ -40,7 +48,7 @@ $totalPages = max(1, ceil($total / $perPage));
 $page = min($page, $totalPages);
 $offset = ($page - 1) * $perPage;
 
-$sql = "SELECT * FROM documents" . $whereSql . " ORDER BY updated_at DESC LIMIT $perPage OFFSET $offset";
+$sql = "SELECT * FROM documents" . $whereSql . " ORDER BY $sort $orderSql LIMIT $perPage OFFSET $offset";
 $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
 $docs = $stmt->fetchAll();
@@ -51,10 +59,14 @@ $firstImages = get_first_images_batch($docIds);
 $cats = get_categories();
 $allTags = get_all_tags();
 $hasFilter = ($search !== '' || $category !== '' || !empty($selectedTags));
+$stats = get_stats();
+$expiringDocs = $pdo->query("SELECT id, title, expire_date FROM documents WHERE deleted_at IS NULL AND expire_date IS NOT NULL AND expire_date <= datetime('now', '+8 hours', '+" . $expireDays . " days') ORDER BY expire_date ASC")->fetchAll();
 
 function page_url($p) {
     $q = $_GET;
     $q['page'] = $p;
+    if (empty($q['sort'])) $q['sort'] = 'created_at';
+    if (empty($q['order'])) $q['order'] = 'desc';
     return '?' . http_build_query($q);
 }
 function tag_toggle_url($t) {
@@ -79,16 +91,22 @@ function tag_toggle_url($t) {
     } else {
         unset($q['tags']);
     }
+    if (empty($q['sort'])) $q['sort'] = 'created_at';
+    if (empty($q['order'])) $q['order'] = 'desc';
     return $q ? '?' . http_build_query($q) : 'index.php';
 }
 function clear_all_tags_url() {
     $q = $_GET;
     unset($q['tag'], $q['tags'], $q['page']);
+    if (empty($q['sort'])) $q['sort'] = 'created_at';
+    if (empty($q['order'])) $q['order'] = 'desc';
     return $q ? '?' . http_build_query($q) : 'index.php';
 }
 function clear_search_url() {
     $q = $_GET;
     unset($q['q'], $q['page']);
+    if (empty($q['sort'])) $q['sort'] = 'created_at';
+    if (empty($q['order'])) $q['order'] = 'desc';
     return $q ? '?' . http_build_query($q) : 'index.php';
 }
 ?>
@@ -103,33 +121,75 @@ function clear_search_url() {
     <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
+<input type="hidden" name="csrf_token" value="<?= csrf_token() ?>">
 <div class="container">
     <div class="header home-header">
-        <h1><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2a80eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;margin-right:6px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>纸质文档管理</h1>
+        <h1><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2a80eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-4px;margin-right:8px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>纸质文档管理</h1>
+        <a href="settings.php" class="btn btn-icon-only" title="设置">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+        </a>
         <a href="add.php<?= $category ? '?category=' . urlencode($category) : '' ?>" class="btn">
             <svg class="btn-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
             添加
         </a>
     </div>
 
+    <?php if (!$hasFilter): ?>
+    <div class="stats-bar">
+        <div class="stat-item">
+            <span class="stat-num"><?= $stats['total'] ?></span>
+            <span class="stat-label">文档总数</span>
+        </div>
+        <div class="stat-item">
+            <span class="stat-num"><?= $stats['recent'] ?></span>
+            <span class="stat-label">近7天新增</span>
+        </div>
+        <a href="recycle.php" class="stat-item stat-link">
+            <span class="stat-num"><?= $stats['recycle'] ?></span>
+            <span class="stat-label">回收站</span>
+        </a>
+    </div>
+    <?php if (!empty($expiringDocs)): ?>
+    <div class="expire-alert">
+        <div class="expire-alert-title">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+            即将到期（<?= $expireDays ?>天内）
+        </div>
+        <div class="expire-alert-list">
+            <?php foreach ($expiringDocs as $ed):
+                $edTitle = $ed['title'];
+                $edShort = mb_strlen($edTitle, 'UTF-8') > 15 ? mb_substr($edTitle, 0, 15, 'UTF-8') . '…' : $edTitle;
+            ?>
+            <a href="view.php?id=<?= (int)$ed['id'] ?>" class="expire-alert-item<?= strtotime($ed['expire_date']) < time() ? ' expired' : '' ?>">
+                <span class="expire-alert-name" title="<?= e($edTitle) ?>"><?= e($edShort) ?></span>
+                <span class="expire-alert-date"><?= date('m-d', strtotime($ed['expire_date'])) ?><?= strtotime($ed['expire_date']) < time() ? '（已过期）' : '' ?></span>
+            </a>
+            <?php endforeach; ?>
+        </div>
+    </div>
+    <?php endif; ?>
+    <?php endif; ?>
+
     <div class="search-box">
         <form method="get" action="">
-            <div class="search-input-wrap">
-                <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-                <input type="search" name="q" placeholder="搜索标题、内容..." value="<?= e($search) ?>">
+            <div class="search-row">
+                <div class="search-input-wrap">
+                    <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                    <input type="search" name="q" placeholder="搜索标题、内容..." value="<?= e($search) ?>">
+                </div>
+                <div class="select-wrap">
+                    <select name="category" onchange="this.form.submit()">
+                        <option value="">全部分类</option>
+                        <?php foreach ($cats as $c): ?>
+                        <option value="<?= e($c) ?>" <?= $category === $c ? 'selected' : '' ?>><?= e($c) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <button type="submit" class="btn">搜索</button>
+                <?php if ($search !== ''): ?>
+                <a href="<?= clear_search_url() ?>" class="btn btn-secondary">清除</a>
+                <?php endif; ?>
             </div>
-            <div class="select-wrap">
-                <select name="category" onchange="this.form.submit()">
-                    <option value="">全部分类</option>
-                    <?php foreach ($cats as $c): ?>
-                    <option value="<?= e($c) ?>" <?= $category === $c ? 'selected' : '' ?>><?= e($c) ?></option>
-                    <?php endforeach; ?>
-                </select>
-            </div>
-            <button type="submit" class="btn">搜索</button>
-            <?php if ($search !== ''): ?>
-            <a href="<?= clear_search_url() ?>" class="btn btn-secondary">清除</a>
-            <?php endif; ?>
             <?php if (!empty($selectedTags)): ?>
             <input type="hidden" name="tags" value="<?= e(implode(',', $selectedTags)) ?>">
             <?php endif; ?>
@@ -164,6 +224,28 @@ function clear_search_url() {
     </div>
     <?php endif; ?>
 
+    <div class="sort-bar">
+        <span class="sort-label">排序：</span>
+        <div class="sort-btns">
+            <?php
+            $baseQ = array_filter(['q' => $search, 'category' => $category, 'tags' => !empty($selectedTags) ? implode(',', $selectedTags) : '']);
+            $sortUrl = function($s) use ($baseQ, $order) {
+                return '?' . http_build_query(array_merge($baseQ, ['sort' => $s, 'order' => $order]));
+            };
+            $orderUrl = '?' . http_build_query(array_merge($baseQ, ['sort' => $sort, 'order' => $order === 'desc' ? 'asc' : 'desc']));
+            ?>
+            <a href="<?= $sortUrl('created_at') ?>" class="sort-btn<?= $sort === 'created_at' ? ' active' : '' ?>">创建时间</a>
+            <a href="<?= $sortUrl('updated_at') ?>" class="sort-btn<?= $sort === 'updated_at' ? ' active' : '' ?>">更新时间</a>
+            <a href="<?= $orderUrl ?>" class="sort-btn sort-order" title="<?= $order === 'desc' ? '当前倒序，点击切换升序' : '当前升序，点击切换倒序' ?>">
+                <?php if ($order === 'desc'): ?>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="4" x2="12" y2="20"></line><polyline points="6 14 12 20 18 14"></polyline></svg>
+                <?php else: ?>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="20" x2="12" y2="4"></line><polyline points="6 10 12 4 18 10"></polyline></svg>
+                <?php endif; ?>
+            </a>
+        </div>
+    </div>
+
     <?php if (empty($docs)): ?>
     <div class="empty">
         <div class="empty-icon"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#ccc" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg></div>
@@ -185,13 +267,15 @@ function clear_search_url() {
         <a href="view.php?id=<?= (int)$doc['id'] ?>" class="card-img-link"><div class="card-img card-img-placeholder"><svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#ccc" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg></div></a>
         <?php endif; ?>
         <div class="card-body">
-            <div class="card-title"><a href="view.php?id=<?= (int)$doc['id'] ?>" class="card-title-link"><?= highlight(e($doc['title']), $search) ?></a></div>
+            <div class="card-title">
+                    <a href="view.php?id=<?= (int)$doc['id'] ?>" class="card-title-link"><?= highlight(e($doc['title']), $search) ?></a>
+                </div>
             <div class="card-meta">
                 <?php if ($doc['category']): ?>
-                <span class="card-cat">
+                <a href="?<?= e(http_build_query(array_merge($_GET, ['category' => $doc['category'], 'page' => 1]))) ?>" class="card-cat">
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
                     <?= e($doc['category']) ?>
-                </span>
+                </a>
                 <?php endif; ?>
                 <span class="card-time">
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
@@ -278,5 +362,8 @@ function clear_search_url() {
     <?php endif; ?>
 </div>
 <script src="js/common.js"></script>
+<footer class="site-footer">
+    <p>PaperBox 纸质文档管理系统 &copy; <?= date('Y') ?></p>
+</footer>
 </body>
 </html>

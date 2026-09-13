@@ -42,6 +42,43 @@ try {
         )
     ");
     $pdo->exec("CREATE INDEX IF NOT EXISTS idx_doc_images ON document_images(document_id, sort_order)");
+
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT DEFAULT ''
+        )
+    ");
+
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS document_versions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            document_id INTEGER NOT NULL,
+            title TEXT DEFAULT '',
+            category TEXT DEFAULT '',
+            content TEXT DEFAULT '',
+            tags TEXT DEFAULT '',
+            image_path TEXT DEFAULT '',
+            created_at DATETIME DEFAULT (datetime('now', '+8 hours')),
+            FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+        )
+    ");
+    $pdo->exec("CREATE INDEX IF NOT EXISTS idx_versions_doc ON document_versions(document_id, created_at DESC)");
+
+    // 迁移：增加字段
+    $cols = $pdo->query("PRAGMA table_info(documents)")->fetchAll(PDO::FETCH_COLUMN, 1);
+    if (!in_array('deleted_at', $cols)) {
+        $pdo->exec("ALTER TABLE documents ADD COLUMN deleted_at DATETIME DEFAULT NULL");
+        $pdo->exec("CREATE INDEX IF NOT EXISTS idx_deleted_at ON documents(deleted_at)");
+    }
+    if (!in_array('expire_date', $cols)) {
+        $pdo->exec("ALTER TABLE documents ADD COLUMN expire_date DATETIME DEFAULT NULL");
+        $pdo->exec("CREATE INDEX IF NOT EXISTS idx_expire_date ON documents(expire_date)");
+    }
+    if (!in_array('is_starred', $cols)) {
+        $pdo->exec("ALTER TABLE documents ADD COLUMN is_starred INTEGER DEFAULT 0");
+        $pdo->exec("CREATE INDEX IF NOT EXISTS idx_starred ON documents(is_starred)");
+    }
 } catch (PDOException $e) {
     http_response_code(500);
     die('数据库连接失败，请检查 paper.db 文件权限。');
@@ -84,13 +121,13 @@ function not_found($msg = '文档不存在') {
 
 function get_categories() {
     global $pdo;
-    return $pdo->query("SELECT DISTINCT category FROM documents WHERE category != '' ORDER BY category")
+    return $pdo->query("SELECT DISTINCT category FROM documents WHERE deleted_at IS NULL AND category != '' ORDER BY category")
                ->fetchAll(PDO::FETCH_COLUMN);
 }
 
 function get_all_tags() {
     global $pdo;
-    $rows = $pdo->query("SELECT tags FROM documents WHERE tags != ''")->fetchAll(PDO::FETCH_COLUMN);
+    $rows = $pdo->query("SELECT tags FROM documents WHERE deleted_at IS NULL AND tags != ''")->fetchAll(PDO::FETCH_COLUMN);
     $all = [];
     foreach ($rows as $tags) {
         foreach (preg_split('/[,，]/u', $tags) as $t) {
@@ -216,4 +253,77 @@ function highlight($text, $keyword) {
         $text = $result ?? $text;
     }
     return $text;
+}
+
+function get_setting($key, $default = '') {
+    global $pdo;
+    $stmt = $pdo->prepare("SELECT value FROM settings WHERE key = ?");
+    $stmt->execute([$key]);
+    $val = $stmt->fetchColumn();
+    return $val === false ? $default : $val;
+}
+
+function set_setting($key, $value) {
+    global $pdo;
+    $stmt = $pdo->prepare("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value");
+    $stmt->execute([$key, (string)$value]);
+}
+
+function get_stats() {
+    global $pdo;
+    $total = $pdo->query("SELECT COUNT(*) FROM documents WHERE deleted_at IS NULL")->fetchColumn();
+    $recent = $pdo->query("SELECT COUNT(*) FROM documents WHERE deleted_at IS NULL AND created_at >= datetime('now', '+8 hours', '-7 days')")->fetchColumn();
+    $recycle = $pdo->query("SELECT COUNT(*) FROM documents WHERE deleted_at IS NOT NULL")->fetchColumn();
+    return [
+        'total' => $total,
+        'recent' => $recent,
+        'recycle' => $recycle,
+    ];
+}
+
+// 保存文档版本历史（最多保留10条）
+function save_document_version($docId, $title, $category, $content, $tags, $imagePath) {
+    global $pdo;
+    $stmt = $pdo->prepare("INSERT INTO document_versions (document_id, title, category, content, tags, image_path) VALUES (?, ?, ?, ?, ?, ?)");
+    $stmt->execute([$docId, $title, $category, $content, $tags, $imagePath]);
+    // 删除超过10条的旧版本
+    $keepIds = $pdo->query("SELECT id FROM document_versions WHERE document_id = " . (int)$docId . " ORDER BY created_at DESC LIMIT 10")->fetchAll(PDO::FETCH_COLUMN);
+    if (count($keepIds) >= 10) {
+        $in = implode(',', array_map('intval', $keepIds));
+        $pdo->exec("DELETE FROM document_versions WHERE document_id = " . (int)$docId . " AND id NOT IN ($in)");
+    }
+}
+
+// 获取文档的版本历史列表
+function get_document_versions($docId) {
+    global $pdo;
+    $stmt = $pdo->prepare("SELECT id, title, category, tags, created_at, length(content) as content_length FROM document_versions WHERE document_id = ? ORDER BY created_at DESC");
+    $stmt->execute([$docId]);
+    return $stmt->fetchAll();
+}
+
+// 获取单个版本详情
+function get_document_version($versionId) {
+    global $pdo;
+    $stmt = $pdo->prepare("SELECT * FROM document_versions WHERE id = ?");
+    $stmt->execute([$versionId]);
+    return $stmt->fetch();
+}
+
+// 回滚到指定版本
+function rollback_document($docId, $versionId) {
+    global $pdo;
+    $version = get_document_version($versionId);
+    if (!$version || $version['document_id'] != $docId) return false;
+    // 先保存当前版本到历史
+    $current = $pdo->prepare("SELECT title, category, content, tags, image_path FROM documents WHERE id = ?");
+    $current->execute([$docId]);
+    $cur = $current->fetch();
+    if ($cur) {
+        save_document_version($docId, $cur['title'], $cur['category'], $cur['content'], $cur['tags'], $cur['image_path']);
+    }
+    // 回滚
+    $stmt = $pdo->prepare("UPDATE documents SET title = ?, category = ?, content = ?, tags = ?, image_path = ?, updated_at = datetime('now', '+8 hours') WHERE id = ?");
+    $stmt->execute([$version['title'], $version['category'], $version['content'], $version['tags'], $version['image_path'], $docId]);
+    return true;
 }

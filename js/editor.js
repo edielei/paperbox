@@ -66,6 +66,7 @@
     }
 
     function clearDraft() {
+        if (draftTimer) { clearTimeout(draftTimer); draftTimer = null; }
         try { localStorage.removeItem(DRAFT_KEY); } catch (e) {}
     }
 
@@ -116,9 +117,33 @@
         if (el) el.addEventListener('input', scheduleSave);
     });
 
-    // 表单提交时清除草稿
-    mainForm.addEventListener('submit', function() {
+    // 表单提交：AJAX 提交，成功后 location.replace 避免返回时重现数据
+    let submitting = false;
+    async function submitForm() {
+        if (submitting) return;
+        submitting = true;
         clearDraft();
+        const formData = new FormData(mainForm);
+        try {
+            const res = await fetch(window.location.pathname + window.location.search, {
+                method: 'POST',
+                body: formData
+            });
+            const data = await res.json();
+            if (data.ok) {
+                location.replace(data.url);
+            } else {
+                alert(data.msg || '提交失败');
+                submitting = false;
+            }
+        } catch (err) {
+            alert('提交失败，请重试');
+            submitting = false;
+        }
+    }
+    mainForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+        submitForm();
     });
 
     // ========== 图片上传 ==========
@@ -161,7 +186,9 @@
         item.dataset.path = path;
         item.innerHTML =
             '<img src="' + url + '" alt="">' +
+            '<div class="img-actions">' +
             '<button type="button" class="img-remove" title="删除">×</button>' +
+            '</div>' +
             '<span class="img-drag">⋮⋮</span>';
         item.querySelector('.img-remove').addEventListener('click', function() {
             item.remove();
@@ -341,13 +368,13 @@
                 case 'code': wrapText('`', '`', '代码'); break;
                 case 'sup': wrapText('^', '^', '上标'); break;
                 case 'sub': wrapText('~', '~', '下标'); break;
-                case 'link': wrapText('[', '](https://)', '链接文字'); break;
-                case 'image': wrapText('![', '](https://)', '图片描述'); break;
+                case 'link': openLinkModal(); break;
+                case 'image': openImageModal(); break;
                 case 'quote': prependLine('> '); break;
                 case 'ul': toggleList('- '); break;
                 case 'ol': toggleList('1. '); break;
                 case 'codeblock': wrapCodeBlock(); break;
-                case 'table': insertBlock('| 列1 | 列2 | 列3 |\n| --- | --- | --- |\n| 内容 | 内容 | 内容 |'); break;
+                case 'table': openTableModal(); break;
                 case 'hr': insertBlock('\n---\n'); break;
             }
         });
@@ -458,11 +485,10 @@
     }
 
     // Ctrl+Enter / Cmd+Enter 快捷提交
-    document.addEventListener('keydown', function(e) {
+    contentInput.addEventListener('keydown', function(e) {
         if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
             e.preventDefault();
-            clearDraft();
-            mainForm.submit();
+            submitForm();
         }
     });
 
@@ -483,5 +509,164 @@
     if (!isEditPage) {
         restoreDraft();
         draftReady = true;
+    }
+
+    // ========== 表格对话框 ==========
+    let savedCursorPos = 0;
+    const tableModal = document.getElementById('tableModal');
+    const tableRowsInput = document.getElementById('tableRows');
+    const tableColsInput = document.getElementById('tableCols');
+
+    function openTableModal() {
+        savedCursorPos = contentInput.selectionStart;
+        tableModal.style.display = 'flex';
+        tableRowsInput.value = 3;
+        tableColsInput.value = 3;
+        tableRowsInput.focus();
+        tableRowsInput.select();
+    }
+    function closeTableModal() {
+        tableModal.style.display = 'none';
+    }
+    function generateTable(rows, cols) {
+        let md = '';
+        let header = '|';
+        for (let i = 1; i <= cols; i++) header += ' 列' + i + ' |';
+        md += header + '\n';
+        let sep = '|';
+        for (let i = 0; i < cols; i++) sep += ' --- |';
+        md += sep + '\n';
+        for (let r = 0; r < rows; r++) {
+            let row = '|';
+            for (let col = 0; col < cols; col++) row += ' 内容 |';
+            md += row + '\n';
+        }
+        return md.trim();
+    }
+    function insertTableAtCursor(text) {
+        const ta = contentInput;
+        const start = savedCursorPos;
+        const needsNewline = start > 0 && ta.value[start - 1] !== '\n';
+        const insert = (needsNewline ? '\n' : '') + text + '\n';
+        ta.value = ta.value.substring(0, start) + insert + ta.value.substring(start);
+        ta.focus();
+        const newPos = start + insert.length;
+        ta.selectionStart = ta.selectionEnd = newPos;
+        ta.dispatchEvent(new Event('input'));
+    }
+
+    document.getElementById('tableConfirm').addEventListener('click', function() {
+        const rows = Math.max(1, Math.min(50, parseInt(tableRowsInput.value) || 3));
+        const cols = Math.max(1, Math.min(20, parseInt(tableColsInput.value) || 3));
+        insertTableAtCursor(generateTable(rows, cols));
+        closeTableModal();
+    });
+    document.getElementById('tableCancel').addEventListener('click', closeTableModal);
+    document.getElementById('tableModalOverlay').addEventListener('click', closeTableModal);
+    tableModal.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') closeTableModal();
+        if (e.key === 'Enter') document.getElementById('tableConfirm').click();
+    });
+
+    // ========== 链接对话框 ==========
+    const linkModal = document.getElementById('linkModal');
+    const linkUrlInput = document.getElementById('linkUrl');
+    const linkTextInput = document.getElementById('linkText');
+    let linkSelectedText = '';
+
+    function openLinkModal() {
+        savedCursorPos = contentInput.selectionStart;
+        linkSelectedText = contentInput.value.substring(contentInput.selectionStart, contentInput.selectionEnd);
+        linkUrlInput.value = '';
+        linkTextInput.value = linkSelectedText;
+        linkModal.style.display = 'flex';
+        linkUrlInput.focus();
+    }
+    function closeLinkModal() {
+        linkModal.style.display = 'none';
+    }
+    function insertLink() {
+        const url = linkUrlInput.value.trim();
+        if (!url) { alert('请输入链接地址'); linkUrlInput.focus(); return; }
+        const text = linkTextInput.value.trim() || url;
+        const md = '[' + text + '](' + url + ')';
+        insertAtCursor(md);
+        closeLinkModal();
+    }
+    document.getElementById('linkConfirm').addEventListener('click', insertLink);
+    document.getElementById('linkCancel').addEventListener('click', closeLinkModal);
+    document.getElementById('linkModalOverlay').addEventListener('click', closeLinkModal);
+    linkModal.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') closeLinkModal();
+        if (e.key === 'Enter') insertLink();
+    });
+
+    // ========== 图片对话框 ==========
+    const imageModal = document.getElementById('imageModal');
+    const imageUrlInput = document.getElementById('imageUrl');
+    const imageAltInput = document.getElementById('imageAlt');
+
+    function openImageModal() {
+        savedCursorPos = contentInput.selectionStart;
+        imageUrlInput.value = '';
+        imageAltInput.value = '';
+        imageModal.style.display = 'flex';
+        imageUrlInput.focus();
+    }
+    function closeImageModal() {
+        imageModal.style.display = 'none';
+    }
+    function insertImage() {
+        const url = imageUrlInput.value.trim();
+        if (!url) { alert('请输入图片地址'); imageUrlInput.focus(); return; }
+        if (!/^https?:\/\//i.test(url)) { alert('图片地址必须以 http:// 或 https:// 开头'); imageUrlInput.focus(); return; }
+        const alt = imageAltInput.value.trim() || '图片';
+        const md = '![' + alt + '](' + url + ')';
+        insertAtCursor(md);
+        closeImageModal();
+    }
+    document.getElementById('imageConfirm').addEventListener('click', insertImage);
+    document.getElementById('imageCancel').addEventListener('click', closeImageModal);
+    document.getElementById('imageModalOverlay').addEventListener('click', closeImageModal);
+    imageModal.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') closeImageModal();
+        if (e.key === 'Enter') insertImage();
+    });
+
+    // 在光标位置插入文本
+    function insertAtCursor(text) {
+        const ta = contentInput;
+        const start = savedCursorPos;
+        const end = ta.selectionStart === savedCursorPos ? ta.selectionEnd : savedCursorPos;
+        ta.value = ta.value.substring(0, start) + text + ta.value.substring(end);
+        ta.focus();
+        const newPos = start + text.length;
+        ta.selectionStart = ta.selectionEnd = newPos;
+        ta.dispatchEvent(new Event('input'));
+    }
+
+    // ========== 全屏编辑 ==========
+    const fullscreenBtn = document.getElementById('fullscreenBtn');
+    const editorContainer = contentInput.closest('.editor-container');
+    const expandIcon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path></svg>';
+    const compressIcon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"></path></svg>';
+
+    if (fullscreenBtn && editorContainer) {
+        fullscreenBtn.addEventListener('click', function() {
+            const isFS = editorContainer.classList.toggle('fullscreen');
+            document.body.style.overflow = isFS ? 'hidden' : '';
+            fullscreenBtn.innerHTML = isFS ? compressIcon : expandIcon;
+            fullscreenBtn.title = isFS ? '退出全屏' : '全屏编辑';
+            if (isFS) contentInput.focus();
+        });
+
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape' && editorContainer.classList.contains('fullscreen')) {
+                editorContainer.classList.remove('fullscreen');
+                document.body.style.overflow = '';
+                fullscreenBtn.innerHTML = expandIcon;
+                fullscreenBtn.title = '全屏编辑';
+            }
+        });
     }
 })();

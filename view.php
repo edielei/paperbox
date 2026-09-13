@@ -2,13 +2,14 @@
 require 'config.php';
 $id = intval($_GET['id'] ?? 0);
 
-$stmt = $pdo->prepare("SELECT * FROM documents WHERE id = ?");
+$stmt = $pdo->prepare("SELECT * FROM documents WHERE id = ? AND deleted_at IS NULL");
 $stmt->execute([$id]);
 $doc = $stmt->fetch();
 if (!$doc) not_found();
 
 $images = get_document_images($id);
 $imageUrls = array_map(function($p) { return UPLOAD_URL . $p; }, $images);
+$expireDays = (int)get_setting('expire_days', 30);
 $md = new SimpleMD();
 ?>
 <!DOCTYPE html>
@@ -25,9 +26,7 @@ $md = new SimpleMD();
 <div class="container">
     <div class="header">
         <a href="index.php" class="back-btn" title="返回">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
-            返回
-        </a>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg></a>
         <h1>文档详情</h1>
         <div class="more-wrap">
             <button class="more-btn" id="moreBtn" onclick="toggleMore(event)" aria-label="更多操作">
@@ -37,6 +36,10 @@ $md = new SimpleMD();
                 <a href="edit.php?id=<?= $id ?>" class="more-item">
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
                     编辑
+                </a>
+                <a href="versions.php?id=<?= $id ?>" class="more-item">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                    版本历史
                 </a>
                 <form method="post" action="delete.php" class="more-item-form" onsubmit="return confirm('确定删除？所有图片也会一起删除！')">
                     <?= csrf_field() ?>
@@ -49,7 +52,7 @@ $md = new SimpleMD();
                 <div class="more-divider"></div>
                 <a href="index.php" class="more-item">
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
-                    返回首页
+                    首页
                 </a>
             </div>
         </div>
@@ -57,6 +60,7 @@ $md = new SimpleMD();
 
     <?php if (!empty($images)): ?>
     <?php $imgCount = count($images); ?>
+    <div class="gallery-wrap">
     <div class="detail-gallery gallery-<?= min($imgCount, 6) ?>" id="imgGallery" data-images='<?= json_encode($imageUrls) ?>'>
         <?php foreach ($images as $idx => $path): ?>
         <?php $url = UPLOAD_URL . $path; ?>
@@ -68,6 +72,11 @@ $md = new SimpleMD();
     <?php if ($imgCount > 6): ?>
     <button class="load-more-btn" onclick="showAllImages()">展开全部 <?= $imgCount ?> 张图片</button>
     <?php endif; ?>
+    <a href="download_images.php?id=<?= $id ?>" class="download-images-btn">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+        下载全部图片（<?= $imgCount ?>张）
+    </a>
+    </div>
     <?php endif; ?>
 
     <div class="detail-content">
@@ -83,6 +92,12 @@ $md = new SimpleMD();
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
                 更新于 <?= formatDate($doc['updated_at']) ?>
             </span>
+            <?php if (!empty($doc['expire_date'])): ?>
+            <span class="meta-expire<?= strtotime($doc['expire_date']) < time() ? ' expired' : (strtotime($doc['expire_date']) < strtotime('+' . $expireDays . ' days') ? ' warning' : '') ?>">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+                到期 <?= date('Y-m-d', strtotime($doc['expire_date'])) ?>
+            </span>
+            <?php endif; ?>
         </div>
 
         <?php if ($doc['tags']): ?>
@@ -126,5 +141,8 @@ $md = new SimpleMD();
 <script src="js/common.js"></script>
 <script src="js/viewer.js"></script>
 
+<footer class="site-footer">
+    <p>PaperBox 纸质文档管理系统 &copy; <?php echo date('Y'); ?></p>
+</footer>
 </body>
 </html>

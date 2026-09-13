@@ -17,3 +17,12 @@ document.addEventListener('click', function(e) {
         tf.classList.remove('open');
     }
 });
+
+// 数字键盘 + 号快捷跳转到添加页
+document.addEventListener('keydown', function(e) {
+    if (e.code !== 'NumpadAdd') return;
+    const tag = document.activeElement.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+    if (document.activeElement.isContentEditable) return;
+    window.location.href = 'add.php';
+});

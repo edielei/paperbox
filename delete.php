@@ -11,8 +11,7 @@ verify_csrf();
 $id = intval($_POST['id'] ?? 0);
 if ($id <= 0) redirect('index.php');
 
-// 先删除图片文件，再删数据库记录（外键级联删 document_images）
-delete_document_images_files($id);
-$pdo->prepare("DELETE FROM documents WHERE id = ?")->execute([$id]);
+// 软删除：移入回收站，不删除图片文件
+$pdo->prepare("UPDATE documents SET deleted_at = datetime('now', '+8 hours') WHERE id = ?")->execute([$id]);
 
 redirect('index.php');
